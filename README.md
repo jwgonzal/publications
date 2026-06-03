@@ -71,7 +71,7 @@ En tu Google Site, puedes poner el enlace a esta página en la sección de publi
 
 - **Automática**: cada lunes a las 05:00 (Chile) el workflow se ejecuta solo.
 - **Manual**: en GitHub → pestaña Actions → "Deploy Publications Page" → "Run workflow".
-- **Al publicar algo nuevo**: solo agrega el trabajo a tu perfil ORCID en [orcid.org](https://orcid.org/0000-0003-2238-5522). La siguiente actualización automática lo incluirá.
+- **Al publicar algo nuevo**: solo agrega el trabajo a tu perfil ORCID en [orcid.org]. La siguiente actualización automática lo incluirá.
 
 ---
 
@@ -85,4 +85,4 @@ El archivo `index.html` contiene todo. Si quieres cambiar algo:
 
 ---
 
-## 📌 Tu ORCID: `0000-0003-2238-5522`
+
