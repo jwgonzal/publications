@@ -847,21 +847,26 @@ function makeJournalChart(pubs) {
 }
 
 /* ─────────────────────────────────────────────
-   KEYWORDS — extracted from ORCID work details
+   KEYWORDS — fallback from ORCID work details
+   (only used if OpenAlex topics didn't load)
 ───────────────────────────────────────────── */
 function renderKeywords(pubs) {
+  const el = document.getElementById('keywordCloud');
+  // If OpenAlex already populated this, don't overwrite
+  if (el.children.length > 0) return;
   const counts = {};
   pubs.forEach(p => (p.keywords || []).forEach(k => {
     const key = k.trim().toLowerCase();
     if (key.length > 2) counts[key] = (counts[key]||0) + 1;
   }));
   const top = Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,18);
-  const el  = document.getElementById('keywordCloud');
-  if (!top.length) { el.innerHTML = '<span style="font-size:0.78rem;color:var(--muted)">No keywords found</span>'; return; }
+  if (!top.length) {
+    el.innerHTML = '<span style="font-size:0.78rem;color:var(--muted)">No keywords found</span>';
+    return;
+  }
   const max = top[0][1];
   el.innerHTML = top.map(([kw, n]) => {
-    // Scale font size 0.68–0.92rem based on frequency
-    const size = (0.68 + (n/max) * 0.24).toFixed(2);
+    const size    = (0.68 + (n/max) * 0.24).toFixed(2);
     const opacity = 0.6 + (n/max)*0.4;
     return `<span class="kw-tag" style="font-size:${size}rem;opacity:${opacity}" title="${n} papers">${kw}</span>`;
   }).join('');
@@ -898,24 +903,45 @@ function renderCountries() {
 
 /* ─────────────────────────────────────────────
    CITATIONS + H-INDEX — via OpenAlex public API
+   Using the verified author ID directly to avoid
+   ambiguous ORCID matches across multiple profiles.
 ───────────────────────────────────────────── */
+const OPENALEX_ID = 'A5100626637';
+
 async function fetchCitations() {
   try {
-    const url = `https://api.openalex.org/authors?filter=orcid:${ORCID}&select=cited_by_count,summary_stats`;
+    const url = `https://api.openalex.org/authors/${OPENALEX_ID}`;
     const r   = await fetch(url, { headers: { Accept: 'application/json' } });
     if (!r.ok) return;
-    const d = await r.json();
-    const author = d.results?.[0];
-    if (!author) return;
+    const author = await r.json();
     const cites  = author.cited_by_count || 0;
     const hindex = author.summary_stats?.h_index || 0;
     const i10    = author.summary_stats?.i10_index || 0;
-    document.getElementById('hindex').textContent    = hindex;
+    document.getElementById('hindex').textContent     = hindex;
     document.getElementById('totalCites').textContent = cites >= 1000
       ? (cites/1000).toFixed(1)+'k' : cites;
-    document.getElementById('i10index').textContent  = i10;
-    document.getElementById('citesNote').textContent = 'Via OpenAlex · updates weekly';
-  } catch { document.getElementById('citesNote').textContent = 'Citations unavailable'; }
+    document.getElementById('i10index').textContent   = i10;
+    document.getElementById('citesNote').innerHTML =
+      'Via <a href="https://openalex.org/authors/'+OPENALEX_ID+'" target="_blank" style="color:var(--accent);text-decoration:none;border-bottom:1px solid var(--border)">OpenAlex</a> · updates weekly';
+
+    // Also render topics from OpenAlex (much richer than ORCID keywords)
+    const topics = author.topics || [];
+    if (topics.length) renderTopicsFromOpenAlex(topics);
+  } catch {
+    document.getElementById('citesNote').textContent = 'Citations unavailable';
+  }
+}
+
+function renderTopicsFromOpenAlex(topics) {
+  const el = document.getElementById('keywordCloud');
+  const top = topics.slice(0, 15);
+  const max = top[0]?.count || 1;
+  el.innerHTML = top.map(t => {
+    const size    = (0.66 + (t.count / max) * 0.22).toFixed(2);
+    const opacity = 0.55 + (t.count / max) * 0.45;
+    const name    = t.display_name || t.value || '';
+    return `<span class="kw-tag" style="font-size:${size}rem;opacity:${opacity}" title="${t.count} papers">${name}</span>`;
+  }).join('');
 }
 
 /* ─────────────────────────────────────────────
