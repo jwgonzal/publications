@@ -277,19 +277,24 @@ header .role {
 }
 
 /* Stats grid */
-.stats-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
+/* Stats banner (horizontal, below header) */
+.stats-banner {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface);
+  margin-bottom: 1.5rem;
 }
 .stat-box {
-  background: var(--surface);
-  border-radius: 6px;
-  padding: 0.65rem 0.75rem;
+  flex: 1;
+  padding: 0.9rem 1rem;
   text-align: center;
+  border-right: 1px solid var(--border);
 }
-.stat-val { font-size: 1.3rem; font-weight: 600; color: var(--text); line-height: 1; }
-.stat-lbl { font-size: 0.62rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); margin-top: 2px; }
+.stat-box:last-child { border-right: none; }
+.stat-val { font-size: 1.5rem; font-weight: 600; color: var(--text); line-height: 1; }
+.stat-lbl { font-size: 0.6rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-top: 3px; }
 
 /* Charts */
 .chart-wrap { position: relative; width: 100%; }
@@ -390,6 +395,14 @@ footer a:hover { color: var(--accent); border-color: var(--accent); }
 
 <div class="page-wrap">
 
+  <!-- Stats banner -->
+  <div class="stats-banner" style="margin-top:1.5rem">
+    <div class="stat-box"><div class="stat-val" id="total-count">—</div><div class="stat-lbl">Works</div></div>
+    <div class="stat-box"><div class="stat-val" id="journal-count">—</div><div class="stat-lbl">Articles</div></div>
+    <div class="stat-box"><div class="stat-val" id="year-range" style="font-size:1.1rem;letter-spacing:-0.01em">—</div><div class="stat-lbl">Year range</div></div>
+    <div class="stat-box"><div class="stat-val" id="last-updated" style="font-size:0.85rem">—</div><div class="stat-lbl">Last synced</div></div>
+  </div>
+
   <!-- Controls -->
   <div class="top-controls">
     <div class="search-wrap">
@@ -418,16 +431,6 @@ footer a:hover { color: var(--accent); border-color: var(--accent); }
 
     <!-- RIGHT: sidebar -->
     <div class="sidebar">
-
-      <!-- Stats -->
-      <div class="sb-section">
-        <div class="sb-title">Overview</div>
-        <div class="stats-grid">
-          <div class="stat-box"><div class="stat-val" id="total-count">—</div><div class="stat-lbl">Works</div></div>
-          <div class="stat-box"><div class="stat-val" id="journal-count">—</div><div class="stat-lbl">Articles</div></div>
-          <div class="stat-box" style="grid-column:1/-1"><div class="stat-val" id="year-range" style="font-size:1rem">—</div><div class="stat-lbl">Year range</div></div>
-        </div>
-      </div>
 
       <!-- Publications per year -->
       <div class="sb-section">
@@ -460,8 +463,8 @@ footer a:hover { color: var(--accent); border-color: var(--accent); }
           </div>
         </div>
         <div id="sb-network" class="sb-panel">
-          <canvas id="networkCanvas" width="500" height="260"></canvas>
-          <p style="font-size:0.65rem;color:var(--muted);margin-top:6px;text-align:center">Line weight = co-authorship frequency</p>
+          <canvas id="networkCanvas" width="500" height="320"></canvas>
+          <p style="font-size:0.65rem;color:var(--muted);margin-top:4px;text-align:center">Node size &amp; line weight = co-authorship frequency</p>
         </div>
       </div>
 
@@ -474,9 +477,9 @@ footer a:hover { color: var(--accent); border-color: var(--accent); }
       </div>
 
       <!-- Sync info -->
-      <div style="display:flex;align-items:center;gap:6px;font-size:0.66rem;color:var(--muted)">
+      <div style="display:flex;align-items:center;gap:6px;font-size:0.66rem;color:var(--muted);margin-top:0.5rem">
         <span style="width:6px;height:6px;border-radius:50%;background:#22c55e;flex-shrink:0;"></span>
-        Synced from ORCID · <span id="last-updated">—</span>
+        Auto-synced from ORCID
       </div>
 
     </div>
@@ -674,10 +677,10 @@ function renderPubs() {
 function updateStats(pubs) {
   const j  = pubs.filter(w => w.type === 'journal-article').length;
   const ys = pubs.map(w => parseInt(w.year)).filter(Boolean);
-  document.getElementById('total-count').textContent  = pubs.length;
-  document.getElementById('journal-count').textContent = j;
-  document.getElementById('year-range').textContent   = ys.length ? `${Math.min(...ys)} – ${Math.max(...ys)}` : '—';
-  document.getElementById('last-updated').textContent = new Date().toLocaleDateString('es-CL',{day:'2-digit',month:'short',year:'numeric'});
+  document.getElementById('total-count').textContent   = pubs.length;
+  document.getElementById('journal-count').textContent  = j;
+  document.getElementById('year-range').textContent    = ys.length ? `${Math.min(...ys)} – ${Math.max(...ys)}` : '—';
+  document.getElementById('last-updated').textContent  = new Date().toLocaleDateString('es-CL',{day:'2-digit',month:'short',year:'numeric'});
 }
 
 /* ─────────────────────────────────────────────
@@ -800,46 +803,109 @@ function makeJournalChart(pubs) {
 
 /* ─────────────────────────────────────────────
    NETWORK CANVAS
+   Radial layout with adaptive label placement.
+   Shows top 12 collaborators max for readability.
 ───────────────────────────────────────────── */
 function drawNetwork(pubs) {
   const canvas = document.getElementById('networkCanvas');
-  const ctx    = canvas.getContext('2d');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
   const W = canvas.width, H = canvas.height;
-  ctx.clearRect(0,0,W,H);
+  ctx.clearRect(0, 0, W, H);
 
+  // Build counts
   const counts = {};
-  pubs.forEach(p => p.authors.filter(a=>!isMe(a)).forEach(a => { counts[a]=(counts[a]||0)+1; }));
-  const top = Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,7);
+  pubs.forEach(p => p.authors.filter(a => !isMe(a)).forEach(a => {
+    counts[a] = (counts[a] || 0) + 1;
+  }));
+  const top = Object.entries(counts).sort((a,b) => b[1]-a[1]).slice(0, 12);
   if (!top.length) return;
 
-  const cx = W/2, cy = H/2;
-  const radius = Math.min(W,H)*0.35;
-  const meNode = { id:'Me', x: cx, y: cy, r: 20, main: true };
-  const peers  = top.map(([name,n],i) => {
-    const angle = (2*Math.PI*i/top.length) - Math.PI/2;
-    return { id: name.split(',')[0], x: cx+Math.cos(angle)*radius, y: cy+Math.sin(angle)*radius, r: 8+n*2, n };
-  });
-  const maxN = Math.max(...peers.map(p=>p.n));
+  const maxN   = top[0][1];
+  const cx     = W / 2;
+  const cy     = H / 2;
+  // Adaptive radius: more nodes = slightly larger circle
+  const radius = Math.min(W, H) * (top.length > 8 ? 0.38 : 0.33);
 
+  // Build nodes
+  const meNode = { label: 'Me', x: cx, y: cy, r: 18, n: maxN, main: true };
+  const peers  = top.map(([name, n], i) => {
+    const angle = (2 * Math.PI * i / top.length) - Math.PI / 2;
+    const r     = 6 + Math.round((n / maxN) * 10);
+    return {
+      label: name.split(',')[0].trim(),
+      fullName: name,
+      x: cx + Math.cos(angle) * radius,
+      y: cy + Math.sin(angle) * radius,
+      r, n, angle
+    };
+  });
+
+  // Draw edges first (behind nodes)
   peers.forEach(p => {
-    ctx.beginPath(); ctx.moveTo(meNode.x, meNode.y); ctx.lineTo(p.x, p.y);
-    ctx.strokeStyle = `rgba(55,138,221,${0.12 + (p.n/maxN)*0.25})`;
-    ctx.lineWidth   = 0.5 + (p.n/maxN)*2.5;
+    ctx.beginPath();
+    ctx.moveTo(meNode.x, meNode.y);
+    ctx.lineTo(p.x, p.y);
+    const alpha = 0.1 + (p.n / maxN) * 0.3;
+    ctx.strokeStyle = `rgba(55,138,221,${alpha})`;
+    ctx.lineWidth   = 0.5 + (p.n / maxN) * 2;
     ctx.stroke();
   });
 
-  const allNodes = [meNode, ...peers];
-  allNodes.forEach(n => {
-    ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, Math.PI*2);
-    ctx.fillStyle   = n.main ? '#378ADD' : '#CECBF6';
+  // Draw peer nodes
+  peers.forEach(p => {
+    // Node circle
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    ctx.fillStyle   = '#CECBF6';
     ctx.fill();
-    ctx.strokeStyle = n.main ? '#185FA5' : '#534AB7';
-    ctx.lineWidth   = 1.2; ctx.stroke();
-    ctx.fillStyle   = n.main ? '#fff' : '#3C3489';
-    ctx.font        = `${n.main?500:400} ${n.main?11:9}px Inter,sans-serif`;
-    ctx.textAlign   = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(n.id, n.x, n.y);
+    ctx.strokeStyle = '#534AB7';
+    ctx.lineWidth   = 1;
+    ctx.stroke();
+
+    // Initials inside node (only if radius big enough)
+    if (p.r >= 10) {
+      ctx.fillStyle    = '#3C3489';
+      ctx.font         = `500 ${Math.max(8, p.r * 0.7)}px Inter,sans-serif`;
+      ctx.textAlign    = 'center';
+      ctx.textBaseline = 'middle';
+      const init = p.label.slice(0,2).toUpperCase();
+      ctx.fillText(init, p.x, p.y);
+    }
+
+    // Label outside node — push away from center
+    const LABEL_DIST = p.r + 5;
+    const lx = p.x + Math.cos(p.angle) * LABEL_DIST;
+    const ly = p.y + Math.sin(p.angle) * LABEL_DIST;
+
+    // Anchor: left/right/center based on angle
+    let anchor = 'center';
+    const deg  = (p.angle * 180 / Math.PI + 360) % 360;
+    if (deg > 30 && deg < 150)       { anchor = 'center'; }  // bottom arc
+    else if (deg > 210 && deg < 330) { anchor = 'center'; }  // top arc
+    else if (deg >= 150 && deg <= 210) { anchor = 'end'; }   // left
+    else                               { anchor = 'start'; } // right
+
+    ctx.fillStyle    = '#3d3d3a';
+    ctx.font         = `400 9px Inter,sans-serif`;
+    ctx.textAlign    = anchor;
+    ctx.textBaseline = deg > 270 || deg < 90 ? 'top' : 'bottom';
+    ctx.fillText(p.label, lx, ly);
   });
+
+  // Draw Me node on top
+  ctx.beginPath();
+  ctx.arc(meNode.x, meNode.y, meNode.r, 0, Math.PI * 2);
+  ctx.fillStyle   = '#378ADD';
+  ctx.fill();
+  ctx.strokeStyle = '#185FA5';
+  ctx.lineWidth   = 1.5;
+  ctx.stroke();
+  ctx.fillStyle    = '#fff';
+  ctx.font         = '500 11px Inter,sans-serif';
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('Me', meNode.x, meNode.y);
 }
 
 /* ─────────────────────────────────────────────
