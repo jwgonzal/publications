@@ -354,6 +354,35 @@ header .role {
   background: var(--surface);
 }
 
+/* Citation mini-boxes */
+.stats-mini { display: flex; gap: 6px; }
+.mini-box {
+  flex: 1; background: var(--surface); border-radius: 6px;
+  padding: 0.55rem 0.5rem; text-align: center;
+}
+.mini-val { font-size: 1.2rem; font-weight: 600; color: var(--text); line-height: 1; }
+.mini-lbl { font-size: 0.58rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); margin-top: 2px; }
+
+/* Keyword tags */
+.kw-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 100px;
+  font-size: 0.68rem;
+  font-weight: 500;
+  background: var(--accent-light);
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+/* Country rows */
+.country-row { display: flex; align-items: center; gap: 7px; }
+.country-flag { font-size: 1.1rem; flex-shrink: 0; }
+.country-name { font-size: 0.76rem; color: var(--text); flex: 1; }
+.country-bar-bg { width: 50px; height: 3px; background: var(--border); border-radius: 2px; }
+.country-bar { height: 3px; border-radius: 2px; background: var(--green); }
+.country-n { font-size: 0.68rem; color: var(--muted); min-width: 16px; text-align: right; }
+
 /* ── Footer ── */
 footer {
   max-width: 1100px;
@@ -451,20 +480,36 @@ footer a:hover { color: var(--accent); border-color: var(--accent); }
         </div>
       </div>
 
-      <!-- Top journals + network tabs -->
+      <!-- Citation metrics (OpenAlex) -->
       <div class="sb-section">
-        <div class="sb-tabs">
-          <button class="sb-tab active" onclick="showSbTab('journals',this)">Journals</button>
-          <button class="sb-tab" onclick="showSbTab('network',this)">Network</button>
+        <div class="sb-title">Citation metrics</div>
+        <div class="stats-mini" id="citationStats">
+          <div class="mini-box"><div class="mini-val" id="hindex">—</div><div class="mini-lbl">h-index</div></div>
+          <div class="mini-box"><div class="mini-val" id="totalCites">—</div><div class="mini-lbl">Citations</div></div>
+          <div class="mini-box"><div class="mini-val" id="i10index">—</div><div class="mini-lbl">i10-index</div></div>
         </div>
-        <div id="sb-journals" class="sb-panel active">
-          <div class="chart-wrap" style="height:160px">
-            <canvas id="journalChart" role="img" aria-label="Horizontal bar chart of top journals">Top journals by publication count.</canvas>
-          </div>
+        <div id="citesNote" style="font-size:0.64rem;color:var(--muted);margin-top:6px">Via OpenAlex</div>
+      </div>
+
+      <!-- Top journals -->
+      <div class="sb-section">
+        <div class="sb-title">Top journals</div>
+        <div class="chart-wrap" style="height:155px">
+          <canvas id="journalChart" role="img" aria-label="Horizontal bar chart of top journals">Top journals by publication count.</canvas>
         </div>
-        <div id="sb-network" class="sb-panel">
-          <canvas id="networkCanvas" width="500" height="320"></canvas>
-          <p style="font-size:0.65rem;color:var(--muted);margin-top:4px;text-align:center">Node size &amp; line weight = co-authorship frequency</p>
+      </div>
+
+      <!-- Keywords -->
+      <div class="sb-section">
+        <div class="sb-title">Research topics</div>
+        <div id="keywordCloud" style="display:flex;flex-wrap:wrap;gap:5px;line-height:1.4"></div>
+      </div>
+
+      <!-- Countries -->
+      <div class="sb-section">
+        <div class="sb-title">Collaborating countries</div>
+        <div id="countryList" style="display:flex;flex-direction:column;gap:6px">
+          <div style="font-size:0.78rem;color:var(--muted)">Loading…</div>
         </div>
       </div>
 
@@ -574,18 +619,18 @@ function enrichWithDetail(pub, detail) {
     pub.authors = contributors
       .map(c => c['credit-name']?.value || '')
       .filter(Boolean);
-    // Build collabMeta automatically from ORCID detail
     contributors.forEach(c => {
       const name = c['credit-name']?.value || '';
       if (!name || isMe(name)) return;
-      const orcidId    = c['contributor-orcid']?.path || null;
-      // Try to get affiliation from the contributor's ORCID record if available
-      // (stored for later enrichment via fetchCollabAffiliation)
+      const orcidId = c['contributor-orcid']?.path || null;
       if (!collabMeta[name]) {
         collabMeta[name] = { inst: '', country: '', flag: '', orcidId };
       }
     });
   }
+  // Extract keywords
+  const kwList = detail['keywords']?.['keyword'] || [];
+  pub.keywords = kwList.map(k => k.content || k.value || '').filter(Boolean);
   return pub;
 }
 
@@ -802,121 +847,75 @@ function makeJournalChart(pubs) {
 }
 
 /* ─────────────────────────────────────────────
-   NETWORK CANVAS
-   Radial layout with adaptive label placement.
-   Shows top 12 collaborators max for readability.
+   KEYWORDS — extracted from ORCID work details
 ───────────────────────────────────────────── */
-function drawNetwork(pubs) {
-  const canvas = document.getElementById('networkCanvas');
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
-  ctx.clearRect(0, 0, W, H);
-
-  // Build counts
+function renderKeywords(pubs) {
   const counts = {};
-  pubs.forEach(p => p.authors.filter(a => !isMe(a)).forEach(a => {
-    counts[a] = (counts[a] || 0) + 1;
+  pubs.forEach(p => (p.keywords || []).forEach(k => {
+    const key = k.trim().toLowerCase();
+    if (key.length > 2) counts[key] = (counts[key]||0) + 1;
   }));
-  const top = Object.entries(counts).sort((a,b) => b[1]-a[1]).slice(0, 12);
-  if (!top.length) return;
-
-  const maxN   = top[0][1];
-  const cx     = W / 2;
-  const cy     = H / 2;
-  // Adaptive radius: more nodes = slightly larger circle
-  const radius = Math.min(W, H) * (top.length > 8 ? 0.38 : 0.33);
-
-  // Build nodes
-  const meNode = { label: 'Me', x: cx, y: cy, r: 18, n: maxN, main: true };
-  const peers  = top.map(([name, n], i) => {
-    const angle = (2 * Math.PI * i / top.length) - Math.PI / 2;
-    const r     = 6 + Math.round((n / maxN) * 10);
-    return {
-      label: name.split(',')[0].trim(),
-      fullName: name,
-      x: cx + Math.cos(angle) * radius,
-      y: cy + Math.sin(angle) * radius,
-      r, n, angle
-    };
-  });
-
-  // Draw edges first (behind nodes)
-  peers.forEach(p => {
-    ctx.beginPath();
-    ctx.moveTo(meNode.x, meNode.y);
-    ctx.lineTo(p.x, p.y);
-    const alpha = 0.1 + (p.n / maxN) * 0.3;
-    ctx.strokeStyle = `rgba(55,138,221,${alpha})`;
-    ctx.lineWidth   = 0.5 + (p.n / maxN) * 2;
-    ctx.stroke();
-  });
-
-  // Draw peer nodes
-  peers.forEach(p => {
-    // Node circle
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-    ctx.fillStyle   = '#CECBF6';
-    ctx.fill();
-    ctx.strokeStyle = '#534AB7';
-    ctx.lineWidth   = 1;
-    ctx.stroke();
-
-    // Initials inside node (only if radius big enough)
-    if (p.r >= 10) {
-      ctx.fillStyle    = '#3C3489';
-      ctx.font         = `500 ${Math.max(8, p.r * 0.7)}px Inter,sans-serif`;
-      ctx.textAlign    = 'center';
-      ctx.textBaseline = 'middle';
-      const init = p.label.slice(0,2).toUpperCase();
-      ctx.fillText(init, p.x, p.y);
-    }
-
-    // Label outside node — push away from center
-    const LABEL_DIST = p.r + 5;
-    const lx = p.x + Math.cos(p.angle) * LABEL_DIST;
-    const ly = p.y + Math.sin(p.angle) * LABEL_DIST;
-
-    // Anchor: left/right/center based on angle
-    let anchor = 'center';
-    const deg  = (p.angle * 180 / Math.PI + 360) % 360;
-    if (deg > 30 && deg < 150)       { anchor = 'center'; }  // bottom arc
-    else if (deg > 210 && deg < 330) { anchor = 'center'; }  // top arc
-    else if (deg >= 150 && deg <= 210) { anchor = 'end'; }   // left
-    else                               { anchor = 'start'; } // right
-
-    ctx.fillStyle    = '#3d3d3a';
-    ctx.font         = `400 9px Inter,sans-serif`;
-    ctx.textAlign    = anchor;
-    ctx.textBaseline = deg > 270 || deg < 90 ? 'top' : 'bottom';
-    ctx.fillText(p.label, lx, ly);
-  });
-
-  // Draw Me node on top
-  ctx.beginPath();
-  ctx.arc(meNode.x, meNode.y, meNode.r, 0, Math.PI * 2);
-  ctx.fillStyle   = '#378ADD';
-  ctx.fill();
-  ctx.strokeStyle = '#185FA5';
-  ctx.lineWidth   = 1.5;
-  ctx.stroke();
-  ctx.fillStyle    = '#fff';
-  ctx.font         = '500 11px Inter,sans-serif';
-  ctx.textAlign    = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('Me', meNode.x, meNode.y);
+  const top = Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,18);
+  const el  = document.getElementById('keywordCloud');
+  if (!top.length) { el.innerHTML = '<span style="font-size:0.78rem;color:var(--muted)">No keywords found</span>'; return; }
+  const max = top[0][1];
+  el.innerHTML = top.map(([kw, n]) => {
+    // Scale font size 0.68–0.92rem based on frequency
+    const size = (0.68 + (n/max) * 0.24).toFixed(2);
+    const opacity = 0.6 + (n/max)*0.4;
+    return `<span class="kw-tag" style="font-size:${size}rem;opacity:${opacity}" title="${n} papers">${kw}</span>`;
+  }).join('');
 }
 
 /* ─────────────────────────────────────────────
-   TAB SWITCHING (sidebar)
+   COUNTRIES — built from collab affiliations
 ───────────────────────────────────────────── */
-function showSbTab(id, btn) {
-  document.querySelectorAll('.sb-panel').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.sb-tab').forEach(t => t.classList.remove('active'));
-  document.getElementById('sb-'+id).classList.add('active');
-  btn.classList.add('active');
-  if (id === 'network') setTimeout(() => drawNetwork(allPubs), 30);
+function renderCountries() {
+  const counts = {};
+  Object.values(collabMeta).forEach(m => {
+    if (!m.country || !m.flag) return;
+    const key = m.country;
+    counts[key] = counts[key] || { flag: m.flag, n: 0 };
+    counts[key].n++;
+  });
+  const sorted = Object.entries(counts).sort((a,b)=>b[1].n-a[1].n);
+  const el = document.getElementById('countryList');
+  if (!sorted.length) { el.innerHTML = '<div style="font-size:0.78rem;color:var(--muted)">Loading…</div>'; return; }
+  const max = sorted[0][1].n;
+  // Country code → readable name
+  const NAME = { CL:'Chile', AR:'Argentina', ES:'Spain', US:'United States', DE:'Germany',
+    GB:'United Kingdom', FR:'France', MX:'Mexico', BR:'Brazil', CO:'Colombia',
+    PE:'Peru', IT:'Italy', KR:'South Korea', JP:'Japan', CN:'China', AU:'Australia',
+    CA:'Canada', NL:'Netherlands', SE:'Sweden', CH:'Switzerland' };
+  el.innerHTML = sorted.map(([code,{flag,n}]) => `
+    <div class="country-row">
+      <span class="country-flag">${flag}</span>
+      <span class="country-name">${NAME[code] || code}</span>
+      <div class="country-bar-bg"><div class="country-bar" style="width:${Math.round(n/max*100)}%"></div></div>
+      <span class="country-n">${n}</span>
+    </div>`).join('');
+}
+
+/* ─────────────────────────────────────────────
+   CITATIONS + H-INDEX — via OpenAlex public API
+───────────────────────────────────────────── */
+async function fetchCitations() {
+  try {
+    const url = `https://api.openalex.org/authors?filter=orcid:${ORCID}&select=cited_by_count,summary_stats`;
+    const r   = await fetch(url, { headers: { Accept: 'application/json' } });
+    if (!r.ok) return;
+    const d = await r.json();
+    const author = d.results?.[0];
+    if (!author) return;
+    const cites  = author.cited_by_count || 0;
+    const hindex = author.summary_stats?.h_index || 0;
+    const i10    = author.summary_stats?.i10_index || 0;
+    document.getElementById('hindex').textContent    = hindex;
+    document.getElementById('totalCites').textContent = cites >= 1000
+      ? (cites/1000).toFixed(1)+'k' : cites;
+    document.getElementById('i10index').textContent  = i10;
+    document.getElementById('citesNote').textContent = 'Via OpenAlex · updates weekly';
+  } catch { document.getElementById('citesNote').textContent = 'Citations unavailable'; }
 }
 
 /* ─────────────────────────────────────────────
@@ -951,14 +950,17 @@ async function fetchCollabAffiliation(name, orcidId) {
 
 /* ─────────────────────────────────────────────
    INIT — progressive loading
-   Phase 1: fetch summaries → render list + charts
-   Phase 2: fetch each work detail in parallel → enrich authors
-   Phase 3: fetch collab affiliations in background → update sidebar
+   Phase 1: fetch summaries → render list + charts + citations
+   Phase 2: fetch each work detail → enrich authors + keywords
+   Phase 3: fetch collab affiliations → update countries
 ───────────────────────────────────────────── */
 async function init() {
   try {
-    // ── Phase 1: summaries ──
-    const groups = await fetchOrcid();
+    // ── Phase 1: summaries + citations (parallel) ──
+    const [groups] = await Promise.all([
+      fetchOrcid(),
+      fetchCitations(),
+    ]);
     allPubs = groups.map(parseSummary).filter(Boolean)
                     .sort((a,b) => (b.year||0)-(a.year||0));
     updateStats(allPubs);
@@ -967,11 +969,11 @@ async function init() {
     makeTypeChart(allPubs);
     makeJournalChart(allPubs);
 
-    // ── Phase 2: work details (authors) in parallel batches ──
+    // ── Phase 2: work details (authors + keywords) in batches ──
     document.getElementById('collabList').innerHTML =
       '<div style="font-size:0.78rem;color:var(--muted)">Loading authors…</div>';
 
-    const BATCH = 5; // requests at a time to be polite to the API
+    const BATCH = 5;
     for (let i = 0; i < allPubs.length; i += BATCH) {
       const batch = allPubs.slice(i, i+BATCH);
       await Promise.all(batch.map(async pub => {
@@ -980,19 +982,18 @@ async function init() {
       }));
     }
 
-    // Re-render pubs (now with full author lists) + charts
+    // Render pubs (full authors), collabs, keywords
     renderPubs();
     renderCollabs(allPubs);
-    drawNetwork(allPubs);
+    renderKeywords(allPubs);
 
-    // ── Phase 3: collab affiliations in background ──
-    // Only for collabs who have an ORCID iD
+    // ── Phase 3: collab affiliations → countries ──
     const withOrcid = Object.entries(collabMeta).filter(([,m]) => m.orcidId);
     for (const [name, meta] of withOrcid) {
       await fetchCollabAffiliation(name, meta.orcidId);
     }
-    // Final re-render of collab sidebar with affiliations
     renderCollabs(allPubs);
+    renderCountries();
 
   } catch(e) {
     document.getElementById('pub-list').innerHTML =
