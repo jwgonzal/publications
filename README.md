@@ -1,4 +1,4 @@
-# 📚 Página de Publicaciones — J. W. González
+# 📚 Página de Publicaciones
 
 Página de publicaciones académicas con **actualización automática** desde ORCID.
 
